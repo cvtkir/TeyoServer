@@ -24,10 +24,10 @@ public:
 		read_message();
 	}
 
-	void deliver(const string& message) {
-		boost::asio::async_write(socket_, boost::asio::buffer(message+"\n"),
-			[](boost::system::error_code, size_t) {});
-	}
+	//void deliver(const string& message) {
+	//	boost::asio::async_write(socket_, boost::asio::buffer(message+"\n"),
+	//		[](boost::system::error_code, size_t) {});
+	//}
 
 	void deliverv2(shared_ptr<string> message) {
 		auto self(shared_from_this());
@@ -72,10 +72,6 @@ private:
 						boost::asio::buffers_begin(data) + length);
 
 					buffer_.consume(length);
-
-					//if (!message.empty() && message.back() == '\n') {
-					//	message.pop_back();
-					//}
 
 					auto shared_message = make_shared<string>(std::move(message));
 
