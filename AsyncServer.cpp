@@ -1,4 +1,9 @@
-#include <boost/asio.hpp>
+﻿#include <boost/asio.hpp>
+#include <boost/asio/awaitable.hpp>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/detached.hpp>
+#include <boost/asio/use_awaitable.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <iostream>
 #include <string>
 #include <set>
@@ -6,115 +11,191 @@
 #include <deque>
 
 
-using boost::asio::ip::tcp;
+
+using namespace boost::asio;
+using namespace boost::asio::experimental::awaitable_operators;
+using tcp = ip::tcp;
 using namespace std;
 
 #define DEFAULT_PORT 42001
 #define BUFFER_SIZE 1024
 
 
-class ChatSession : public enable_shared_from_this<ChatSession>
-{
+
+
+
+//class ChatSession : public enable_shared_from_this<ChatSession>
+//{
+//public:
+//	ChatSession(tcp::socket socket, set<shared_ptr<ChatSession>>& clients)
+//		: socket_(std::move(socket)), clients_(clients) {}
+//
+//	void start() {
+//		clients_.insert(shared_from_this());
+//		read_message();
+//	}
+//
+//	void deliver(shared_ptr<string> message) {
+//		auto self(shared_from_this());
+//		boost::asio::post(socket_.get_executor(),
+//			[this, self, msg = std::move(message)]() {
+//				cout << "deliverv2 lambda" << endl;
+//				bool write_in_progress = !write_msgs_.empty();
+//				write_msgs_.push_back(std::move(*msg));
+//				if (!write_in_progress) {
+//					do_write();
+//				}
+//			});
+//	}
+//
+//	void do_write() {
+//		auto self(shared_from_this());
+//		boost::asio::async_write(socket_,
+//			boost::asio::buffer(write_msgs_.front()),
+//			[this, self](boost::system::error_code ec, size_t /*length*/) {
+//				if (!ec) {
+//					write_msgs_.pop_front();
+//					if (!write_msgs_.empty()) {
+//						do_write();
+//					}
+//				}
+//				else {
+//					boost::asio::post(socket_.get_executor(),
+//						[this, self]() { clients_.erase(self); });
+//				}
+//			});
+//	}
+//
+//private:
+//	void read_message() {
+//		auto self(shared_from_this());
+//		boost::asio::async_read_until(socket_, buffer_, '\n',
+//			[this, self](boost::system::error_code ec, size_t length) {
+//				if (!ec) {
+//					auto data = buffer_.data();
+//					string message(
+//						boost::asio::buffers_begin(data),
+//						boost::asio::buffers_begin(data) + length);
+//
+//					buffer_.consume(length);
+//
+//					auto shared_message = make_shared<string>(std::move(message));
+//
+//					for (auto& client : clients_) {
+//						if (client != self) {
+//							client->deliver(shared_message);
+//							cout << "trying deliverv2" << endl;
+//						}
+//					}
+//					read_message();
+//				}
+//				else
+//				{
+//					boost::asio::post(socket_.get_executor(), [this, self]()
+//						{clients_.erase(self); });
+//				}
+//			});
+//	}
+//	tcp::socket socket_;
+//	boost::asio::streambuf buffer_;
+//	set<shared_ptr<ChatSession>>& clients_;
+//	std::deque<std::string> write_msgs_;
+//};
+
+
+class ChatSession : public enable_shared_from_this<ChatSession> {
 public:
 	ChatSession(tcp::socket socket, set<shared_ptr<ChatSession>>& clients)
-		: socket_(std::move(socket)), clients_(clients) {}
-
-	void start() {
-		clients_.insert(shared_from_this());
-		read_message();
+		: socket_(std::move(socket)), clients_(clients) {
 	}
 
-	//void deliver(const string& message) {
-	//	boost::asio::async_write(socket_, boost::asio::buffer(message+"\n"),
-	//		[](boost::system::error_code, size_t) {});
-	//}
+	awaitable<void> start() {
+		auto executor = co_await this_coro::executor;
+		auto self = shared_from_this();
+		clients_.insert(self);
 
-	void deliverv2(shared_ptr<string> message) {
-		auto self(shared_from_this());
-		boost::asio::post(socket_.get_executor(),
-			[this, self, msg = std::move(message)]() {
-				cout << "deliverv2 lambda" << endl;
-				bool write_in_progress = !write_msgs_.empty();
-				write_msgs_.push_back(std::move(*msg));
-				if (!write_in_progress) {
-					do_write();
-				}
-			});
-	}
+		try {
+			boost::asio::streambuf buffer;
 
-	void do_write() {
-		auto self(shared_from_this());
-		boost::asio::async_write(socket_,
-			boost::asio::buffer(write_msgs_.front()),
-			[this, self](boost::system::error_code ec, size_t /*length*/) {
-				if (!ec) {
-					write_msgs_.pop_front();
-					if (!write_msgs_.empty()) {
-						do_write();
+			while (true) {
+				std::size_t n = co_await async_read_until(socket_, buffer, '\n', use_awaitable);
+				string message{
+					buffers_begin(buffer.data()),
+					buffers_begin(buffer.data()) + n
+				};
+
+				buffer.consume(n);
+				auto shared_msg = make_shared<string>(std::move(message));
+
+				// Рассылаем сообщение всем, кроме отправителя
+				for (auto& client : clients_) {
+					if (client != self) {
+						client->deliver(shared_msg);
 					}
 				}
-				else {
-					boost::asio::post(socket_.get_executor(),
-						[this, self]() { clients_.erase(self); });
-				}
+			}
+		}
+		catch (const std::exception& e) {
+			std::cerr << "Client disconnected: " << e.what() << std::endl;
+			clients_.erase(self);
+			co_return;
+		}
+	}
+
+	void deliver(shared_ptr<string> message) {
+		auto self = shared_from_this();
+		post(socket_.get_executor(), [this, self, msg = std::move(message)]() {
+			bool write_in_progress = !write_msgs_.empty();
+			write_msgs_.push_back(std::move(*msg));
+			if (!write_in_progress) {
+				co_spawn(socket_.get_executor(), do_write(), detached);
+			}
 			});
 	}
 
 private:
-	void read_message() {
-		auto self(shared_from_this());
-		boost::asio::async_read_until(socket_, buffer_, '\n',
-			[this, self](boost::system::error_code ec, size_t length) {
-				if (!ec) {
-					auto data = buffer_.data();
-					string message(
-						boost::asio::buffers_begin(data),
-						boost::asio::buffers_begin(data) + length);
-
-					buffer_.consume(length);
-
-					auto shared_message = make_shared<string>(std::move(message));
-
-					for (auto& client : clients_) {
-						if (client != self) {
-							client->deliverv2(shared_message);
-							cout << "trying deliverv2" << endl;
-						}
-					}
-					read_message();
-				}
-				else
-				{
-					boost::asio::post(socket_.get_executor(), [this, self]()
-						{clients_.erase(self); });
-				}
-			});
+	awaitable<void> do_write() {
+		try {
+			while (!write_msgs_.empty()) {
+				co_await async_write(socket_, buffer(write_msgs_.front()), use_awaitable);
+				write_msgs_.pop_front();
+			}
+		}
+		catch (...) {
+			clients_.erase(shared_from_this());
+			co_return;
+		}
 	}
+
 	tcp::socket socket_;
-	boost::asio::streambuf buffer_;
 	set<shared_ptr<ChatSession>>& clients_;
 	std::deque<std::string> write_msgs_;
 };
 
 
+
+
 class ChatServer
 {
 public:
-	ChatServer(boost::asio::io_context& io_context, short port)
-		: acceptor_(io_context, tcp::endpoint(tcp::v4(), port)){
-		accept_clients();
+	ChatServer(tcp::acceptor acceptor)
+		: acceptor_(std::move(acceptor)){}
+
+
+	awaitable<void> listener() {
+		try {
+			for (;;) {
+				tcp::socket socket = co_await acceptor_.async_accept(use_awaitable);
+				std::cout << "Client connected\n";
+				auto session = std::make_shared<ChatSession>(std::move(socket), clients_);
+				co_spawn(acceptor_.get_executor(), session->start(), detached);
+			}
+		}
+		catch (const std::exception& e) {
+			std::cerr << "Accept error: " << e.what() << '\n';
+		}
 	}
 private:
-	void accept_clients() {
-		acceptor_.async_accept(
-			[this](boost::system::error_code ec, tcp::socket socket) {
-				if (!ec) {
-					make_shared<ChatSession>(std::move(socket), clients_)->start();
-					cout << "connected client" << endl;
-				}
-				accept_clients();
-			});
-	}
 	tcp::acceptor acceptor_;
 	std::set<std::shared_ptr<ChatSession>> clients_;
 };
@@ -122,9 +203,20 @@ private:
 
 int main() {
 	try {
-		boost::asio::io_context io_context;
-		ChatServer server(io_context, DEFAULT_PORT);
-		io_context.run();
+		io_context ctx;
+
+		boost::asio::co_spawn(
+			ctx, 
+			[]() -> awaitable<void> {
+				tcp::acceptor acceptor(co_await this_coro::executor, { tcp::v4(), DEFAULT_PORT });
+			ChatServer server(std::move(acceptor));
+			co_await server.listener();
+			}, 
+			detached
+		);
+		
+		ctx.run();
+		cout << "Server started on port " << DEFAULT_PORT << endl;
 	}
 	catch (exception& e) {
 		cerr << e.what() << endl;
