@@ -138,21 +138,3 @@ int main() {
 		cerr << e.what() << endl;
 	}
 }
-//void handle_client(shared_ptr<tcp::socket> socket)
-//{
-//	auto buffer = make_shared<boost::asio::streambuf>();
-//	buffer->prepare(BUFFER_SIZE);
-//
-//	boost::asio::async_read_until(*socket, *buffer, "\n",
-//		[socket, buffer](const boost::system::error_code& error, size_t bytes_transferred) {
-//			if (!error) {
-//				string message(boost::asio::buffers_begin(buffer->data()),
-//					boost::asio::buffers_begin(buffer->data()) + bytes_transferred);
-//				cout << "Received: " << message << endl;
-//				boost::asio::async_write(*socket, boost::asio::buffer(message),
-//					[](const boost::system::error_code&, std::size_t) {});
-//			}
-//		});
-//}
-
-
