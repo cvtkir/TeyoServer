@@ -9,15 +9,16 @@
 #include <set>
 #include <memory>
 #include <deque>
+#include <nlohmann/json.hpp>
 
 
 using namespace boost::asio;
 using namespace boost::asio::experimental::awaitable_operators;
 using tcp = ip::tcp;
 using namespace std;
+using json = nlohmann::json;
 
 #define DEFAULT_PORT 42001
-#define BUFFER_SIZE 1024
 #define THREADS_NUM 4
 
 
@@ -41,12 +42,46 @@ public:
 					buffers_begin(buffer.data()),
 					buffers_begin(buffer.data()) + n
 				};
-
 				buffer.consume(n);
-				auto shared_msg = make_shared<string>(std::move(message));
 
-				for (auto& client : clients_) {
-					if (client != self) {
+				json j;
+				try {
+					j = json::parse(message);
+				}
+				catch (const json::parse_error& e) {
+					std::cerr << "Parse error: " << e.what() << std::endl;
+					continue;
+				}
+
+				std::string type = j.value("type", "message");
+
+				if (type == "auth") {
+					std::string login = j.value("login", "");
+					std::string password = j.value("password", "");
+
+					unsigned int assigned_id = static_cast<unsigned int>(reinterpret_cast<uintptr_t>(this) % 10000);
+
+					json response = {
+						{"type", "auth_success"},
+						{"user_id", assigned_id}
+					};
+
+					std::string serialized = response.dump() + "\n";
+					auto shared_auth = std::make_shared<std::string>(std::move(serialized));
+					self->deliver(shared_auth);
+
+					std::cout << "Authorized user: " << login << std::endl;
+				}
+				else if (type == "message") {
+
+					json response = {
+						{"user_id", j.value("user_id", -1)},
+						{"text", j.value("text", "")}
+					};
+					string response_str = response.dump() + "\n";
+					auto shared_msg = std::make_shared<string>(std::move(response_str));
+
+					for (auto& client : clients_) {
 						client->deliver(shared_msg);
 					}
 				}
