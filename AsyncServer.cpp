@@ -37,55 +37,27 @@ public:
 			boost::asio::streambuf buffer;
 
 			while (true) {
-				std::size_t n = co_await async_read_until(socket_, buffer, '\n', use_awaitable);
-				string message{
-					buffers_begin(buffer.data()),
-					buffers_begin(buffer.data()) + n
-				};
-				buffer.consume(n);
+				string message = co_await read_message(buffer);
+				if (message.empty()) {
+					std::cerr << "Client disconnected" << std::endl;
+					break;
+				}
 
 				json j;
-				try {
-					j = json::parse(message);
-				}
-				catch (const json::parse_error& e) {
-					std::cerr << "Parse error: " << e.what() << std::endl;
-					continue;
-				}
+				if (!try_parse_json(message, j)) continue;
 
 				std::string type = j.value("type", "message");
 
 				if (type == "auth") {
-					std::string login = j.value("login", "");
-					std::string password = j.value("password", "");
+					handle_auth(j, self);
 
-					unsigned int assigned_id = static_cast<unsigned int>(reinterpret_cast<uintptr_t>(this) % 10000);
-
-					json response = {
-						{"type", "auth_success"},
-						{"user_id", assigned_id}
-					};
-
-					std::string serialized = response.dump() + "\n";
-					auto shared_auth = std::make_shared<std::string>(std::move(serialized));
-					self->deliver(shared_auth);
-
-					std::cout << "Authorized user: " << login << std::endl;
 				}
 				else if (type == "message") {
-
-					json response = {
-						{"user_id", j.value("user_id", -1)},
-						{"text", j.value("text", "")}
-					};
-					string response_str = response.dump() + "\n";
-					auto shared_msg = std::make_shared<string>(std::move(response_str));
-
-					for (auto& client : clients_) {
-						client->deliver(shared_msg);
-					}
+					handle_chat_message(j, self);
 				}
 			}
+			clients_.erase(self);
+			co_return;
 		}
 		catch (const std::exception& e) {
 			std::cerr << "Client disconnected: " << e.what() << std::endl;
@@ -105,6 +77,71 @@ public:
 			});
 	}
 private:
+	awaitable<std::string> read_message(boost::asio::streambuf& buffer) {
+		std::string message;
+		try {
+			std::size_t n = co_await async_read_until(socket_, buffer, '\n', use_awaitable);
+			message = std::string{ buffers_begin(buffer.data()), buffers_begin(buffer.data()) + n };
+			buffer.consume(n);
+			co_return message;
+		}
+		catch (const std::exception& e) {
+			std::cerr << "Read error: " << e.what() << std::endl;
+			co_return "";
+		}
+	}
+
+
+	bool try_parse_json(const std::string& str, json& j) {
+		try {
+			j = json::parse(str);
+			return true;
+		}
+		catch (const json::parse_error& e) {
+			std::cerr << "JSON parse error" << e.what() << std::endl;
+			return false;
+		}
+	}
+
+	
+	void handle_auth(const json& j, std::shared_ptr<ChatSession> self) {
+		std::string login = j.value("login", "");
+		std::string password = j.value("password", "");
+
+		if (login.empty() || password.empty()) {
+			std::cerr << "Invalid auth data" << std::endl;
+			return;
+		}
+		
+		unsigned int assigned_id = static_cast<unsigned int>(reinterpret_cast<uintptr_t>(this) % 10000);
+
+		json response = {
+			{"type", "auth_success"},
+			{"user_id", assigned_id}
+		};
+
+		std::string serialized = response.dump() + "\n";
+		auto shared_auth = std::make_shared<std::string>(std::move(serialized));
+		self->deliver(shared_auth);
+
+		std::cout << "Authorized user: " << login << std::endl;
+	}
+
+	void handle_chat_message(const json& j, std::shared_ptr<ChatSession> self) {
+		json response = {
+			{"user_id", j.value("user_id", -1)},
+			{"text", j.value("text", "")}
+		};
+		std::string response_str = response.dump() + "\n";
+		auto shared_msg = std::make_shared<std::string>(response_str);
+		for (auto& client : clients_) {
+			if (client != self) {
+				client->deliver(shared_msg);
+			}
+		}
+	}
+
+
 	awaitable<void> do_write() {
 		try {
 			while (!write_msgs_.empty()) {
