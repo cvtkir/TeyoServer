@@ -10,6 +10,7 @@
 #include <memory>
 #include <deque>
 #include <nlohmann/json.hpp>
+#include <pqxx/pqxx>
 
 
 using namespace boost::asio;
