@@ -1,8 +1,10 @@
 {
-  "name": "async-messenger",
-  "version": "0.1.0",
-  "builtin-baseline": "0d5cae153065957df7f382de7c1549ccc88027e5",
-  "dependencies": [
+	"name": "teyo-server",
+	"version-string": "1.0.0",
+	"dependencies": [
+    "boost",
+    "nlohmann-json",
     "libpqxx"
-  ]
+  ],
+  "builtin-baseline": "acd65983f2e668c0bc44a117575e6073681fa8e3"
 }

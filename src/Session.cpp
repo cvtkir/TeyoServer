@@ -5,8 +5,8 @@
 #include <iostream>
 
 
-Session::Session(tcp::socket socket, std::set<std::shared_ptr<Session>>& clients)
-	: socket_(std::move(socket)), clients_(clients) {}
+Session::Session(tcp::socket socket, std::set<std::shared_ptr<Session>>& clients, DataBase& db)
+	: socket_(std::move(socket)), clients_(clients), db_(db) {}
 
 awaitable<void> Session::start() {
 	auto executor = co_await this_coro::executor;
@@ -82,7 +82,7 @@ bool Session::try_parse_json(const std::string& str, json& j) {
 		return false;
 	}
 }
-
+// split into register and login
 void Session::handle_auth(const json& j, std::shared_ptr<Session> self) {
 	std::string login = j.value("login", "");
 	std::string password = j.value("password", "");
