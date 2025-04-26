@@ -5,7 +5,7 @@
 #include <iostream>
 
 
-Session::Session(tcp::socket socket, std::set<std::shared_ptr<Session>>& clients, DataBase& db)
+Session::Session(tcp::socket socket, std::set<std::shared_ptr<Session>>& clients, std::shared_ptr<DataBase> db)
 	: socket_(std::move(socket)), clients_(clients), db_(db) {}
 
 awaitable<void> Session::start() {
@@ -28,9 +28,12 @@ awaitable<void> Session::start() {
 
 			std::string type = j.value("type", "message");
 
-			if (type == "auth") {
-				handle_auth(j, self);
+			if (type == "signup") {
+				handle_signup(j, self);
 
+			}
+			else if (type == "login") {
+				handle_login(j, self);
 			}
 			else if (type == "message") {
 				handle_chat_message(j, self);
@@ -83,28 +86,28 @@ bool Session::try_parse_json(const std::string& str, json& j) {
 	}
 }
 // split into register and login
-void Session::handle_auth(const json& j, std::shared_ptr<Session> self) {
-	std::string login = j.value("login", "");
-	std::string password = j.value("password", "");
-
-	if (login.empty() || password.empty()) {
-		std::cerr << "Invalid auth data" << std::endl;
-		return;
-	}
-
-	unsigned int assigned_id = static_cast<unsigned int>(reinterpret_cast<uintptr_t>(this) % 10000);
-
-	json response = {
-		{"type", "auth_success"},
-		{"user_id", assigned_id}
-	};
-
-	std::string serialized = response.dump() + "\n";
-	auto shared_auth = std::make_shared<std::string>(std::move(serialized));
-	self->deliver(shared_auth);
-
-	std::cout << "Authorized user: " << login << std::endl;
-}
+//void Session::handle_auth(const json& j, std::shared_ptr<Session> self) {
+//	std::string login = j.value("login", "");
+//	std::string password = j.value("password", "");
+//
+//	if (login.empty() || password.empty()) {
+//		std::cerr << "Invalid auth data" << std::endl;
+//		return;
+//	}
+//
+//	unsigned int assigned_id = static_cast<unsigned int>(reinterpret_cast<uintptr_t>(this) % 10000);
+//
+//	json response = {
+//		{"type", "auth_success"},
+//		{"user_id", assigned_id}
+//	};
+//
+//	std::string serialized = response.dump() + "\n";
+//	auto shared_auth = std::make_shared<std::string>(std::move(serialized));
+//	self->deliver(shared_auth);
+//
+//	std::cout << "Authorized user: " << login << std::endl;
+//}
 
 void Session::handle_chat_message(const json& j, std::shared_ptr<Session> self) {
 	json response = {
@@ -131,4 +134,43 @@ awaitable<void> Session::do_write() {
 		clients_.erase(shared_from_this());
 	}
 	co_return;
+}
+
+awaitable<void> Session::handle_login(const json& j, std::shared_ptr<Session> self) {
+	std::string login = j.value("login", "");
+	std::string password = j.value("password", "");
+
+	bool success = co_await db_->login_user(login, password);
+
+	json response;
+	if (success) {
+		response = { {"type", "auth_success"}, {"message", "Login successful"} };
+	}
+	else {
+		response = { {"type", "auth_failed"}, {"message", "Invalid login or password"} };
+	}
+
+	std::string serialized = response.dump() + "\n";
+	auto shared_resp = std::make_shared<std::string>(std::move(serialized));
+	self->deliver(shared_resp);
+}
+
+
+awaitable<void> Session::handle_signup(const json& j, std::shared_ptr<Session> self) {
+	std::string login = j.value("login", "");
+	std::string password = j.value("password", "");
+
+	bool success = co_await db_->signup_user(login, password);
+
+	json response;
+	if (success) {
+		response = { {"type", "auth_success"}, {"message", "Signup successful"} };
+	}
+	else {
+		response = { {"type", "auth_failed"}, {"message", "Signup failed: user already exists"} };
+	}
+
+	std::string serialized = response.dump() + "\n";
+	auto shared_resp = std::make_shared<std::string>(std::move(serialized));
+	self->deliver(shared_resp);
 }

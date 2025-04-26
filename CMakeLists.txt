@@ -27,6 +27,7 @@ target_include_directories(${PROJECT_NAME}
 find_package(Boost REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(libpqxx REQUIRED)
+find_package(unofficial-sodium CONFIG REQUIRED)
 
 
 
@@ -35,6 +36,7 @@ target_link_libraries(TeyoServer
     Boost::boost
     libpqxx::pqxx
     nlohmann_json::nlohmann_json
+    unofficial-sodium::sodium
 )
 
 #if (CMAKE_VERSION VERSION_GREATER 3.12)

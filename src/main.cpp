@@ -11,7 +11,7 @@
 #define DEFAULT_PORT 42001
 #define THREADS_NUM 4
 
-void initServer(DataBase& db) {
+void initServer(std::shared_ptr<DataBase> db) {
 	try {
 		io_context ctx;
 		thread_pool pool(THREADS_NUM);
@@ -38,8 +38,8 @@ int main() {
 	std::string conn_str = "host=localhost port=5432 dbname=messenger_db user=app_user password=kior999";
 
 	io_context db_ctx;
-	DataBase db(conn_str, db_ctx.get_executor());
-
-	initServer(db);
+	DataBase db(conn_str, db_ctx.get_executor(), 20);
+	auto shared_db = std::make_shared<DataBase>(db);
+	initServer(shared_db);
 	return 0;
 }

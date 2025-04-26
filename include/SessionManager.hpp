@@ -9,11 +9,11 @@ using boost::asio::ip::tcp;
 
 class SessionManager {
 public:
-    SessionManager(tcp::acceptor acceptor, DataBase& db);
+    SessionManager(tcp::acceptor acceptor, std::shared_ptr<DataBase> db);
     awaitable<void> listener();
 
 private:
-	DataBase& db_;
+	std::shared_ptr<DataBase> db_;
     tcp::acceptor acceptor_;
     std::set<std::shared_ptr<Session>> clients_;
 };
