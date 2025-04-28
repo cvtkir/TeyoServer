@@ -14,7 +14,6 @@ std::shared_ptr<pqxx::connection> ConnectionPool::get_connection() {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (pool_.empty()) {
-        // Можно либо создать новое соединение, либо подождать
         return std::make_shared<pqxx::connection>(conn_str_);
     }
 

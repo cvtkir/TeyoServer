@@ -15,6 +15,7 @@ file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS src/*.cpp)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CNAKE_CXX_EXTENSIONS OFF)
 
 # Add source to this project's executable.
 add_executable (TeyoServer ${SOURCES})

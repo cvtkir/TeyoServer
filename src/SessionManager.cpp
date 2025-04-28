@@ -3,7 +3,7 @@
 #include <boost/asio/detached.hpp>
 #include <iostream>
 
-SessionManager::SessionManager(tcp::acceptor acceptor, std::shared_ptr<DataBase> db)
+SessionManager::SessionManager(tcp::acceptor acceptor, std::shared_ptr<Database> db)
 	: acceptor_(std::move(acceptor)), db_(db) {}
 
 awaitable<void> SessionManager::listener() {
