@@ -13,6 +13,8 @@ vcpkg_installed/
 *.userosscache
 *.sln.docstates
 
+vscode-msvc.bat
+
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 
