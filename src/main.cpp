@@ -1,10 +1,8 @@
 
-#include <boost/asio.hpp>
-#include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
 #include <boost/asio/thread_pool.hpp>
 #include <iostream>
-#include <pqxx/pqxx>
+
+#include "common_asio.hpp"
 #include "SessionManager.hpp"
 #include "DatabaseManager.hpp"
 
@@ -13,19 +11,20 @@
 
 void initServer(std::shared_ptr<Database> db) {
 	try {
-		io_context ctx;
-		thread_pool pool(THREADS_NUM);
+		net::io_context ctx;
+		net::thread_pool pool(THREADS_NUM);
+
 		co_spawn(
-			ctx, [db]() -> awaitable<void> {
-				tcp::acceptor acceptor(co_await this_coro::executor, { tcp::v4(), DEFAULT_PORT });
-				SessionManager server(std::move(acceptor), db);
-				co_await server.listener();
+			ctx, [db]() -> net::awaitable<void> {
+				tcp::acceptor acceptor(co_await net::this_coro::executor, { tcp::v4(), DEFAULT_PORT });
+				auto manager = std::make_shared<SessionManager>(std::move(acceptor), db);
+				co_await manager->listener();
 			},
-			detached
+			net::detached
 		);
 
 		std::cout << "Server started on port " << DEFAULT_PORT << std::endl;
-		post(pool, [&ctx]() { ctx.run(); });
+		net::post(pool, [&ctx]() { ctx.run(); });
 		pool.join();
 	}
 	catch (std::exception& e) {
@@ -36,10 +35,10 @@ void initServer(std::shared_ptr<Database> db) {
 
 int main() {
 	std::string conn_str = "host=localhost port=5432 dbname=messenger_db user=app_user password=kior999";
-
-	io_context db_ctx;
+	net::io_context db_ctx;
 	Database db(conn_str, db_ctx.get_executor(), 20);
 	auto shared_db = std::make_shared<Database>(std::move(db));
+	std::cout << "Initializing server..." << std::endl;
 	initServer(shared_db);
 	return 0;
 }

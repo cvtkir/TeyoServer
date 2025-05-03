@@ -1,17 +1,16 @@
 
 #pragma once
+
 #include <pqxx/pqxx>
-#include <boost/asio.hpp>
-#include <boost/asio/awaitable.hpp>
-#include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
+
+#include "common_asio.hpp"
 #include "ConnectionPool.hpp"
 
-using namespace boost::asio;
+namespace net = boost::asio;
 
 class Database {
 public:
-	Database(const std::string& conn_str, io_context::executor_type executor, size_t pool_size);
+	Database(const std::string& conn_str, net::io_context::executor_type executor, size_t pool_size);
 
 	struct AuthResult {
 		bool success;
@@ -19,9 +18,11 @@ public:
 		std::string error_message;
 	};
 
-	awaitable<AuthResult> login_user(const std::string& login, const std::string& password);
-	awaitable<bool> signup_user(const std::string& login, const std::string& password);
-	awaitable<bool> validate_token(const std::string& token);
+	net::awaitable<AuthResult> login_user(const std::string& login, const std::string& password);
+	net::awaitable<bool> signup_user(const std::string& login, const std::string& password);
+	net::awaitable<bool> validate_token(const std::string& token);
+	net::awaitable<void> update_user_status(int user_id, const std::string& status);
+	net::io_context::executor_type get_executor() const { return executor_; }
 
 private:
 	boost::asio::awaitable<pqxx::result> execute_query(const std::string& query);
@@ -30,5 +31,5 @@ private:
 	std::string generate_token(int user_id);
 
 	std::unique_ptr<ConnectionPool> pool_;
-	io_context::executor_type executor_;
+	net::io_context::executor_type executor_;
 };

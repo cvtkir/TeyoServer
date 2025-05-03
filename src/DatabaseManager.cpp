@@ -1,7 +1,6 @@
 ﻿
 #include "DatabaseManager.hpp"
 #include <iostream>
-#include <boost/asio/use_awaitable.hpp>
 #include <sodium.h>
 #include <iomanip>
 
@@ -13,12 +12,12 @@ static void init_sodium() {
 }
 
 
-Database::Database(const std::string& conn_str, io_context::executor_type executor, size_t pool_size)
+Database::Database(const std::string& conn_str, net::io_context::executor_type executor, size_t pool_size)
     : executor_(executor), pool_(std::make_unique<ConnectionPool>(conn_str, pool_size)) {
     init_sodium();
 }
 
-awaitable<pqxx::result> Database::execute_query(const std::string& query) {
+net::awaitable<pqxx::result> Database::execute_query(const std::string& query) {
     try {
 		auto conn = pool_->get_connection();
         pqxx::work txn(*conn);
@@ -32,6 +31,7 @@ awaitable<pqxx::result> Database::execute_query(const std::string& query) {
         throw;
     }
 }
+
 
 std::string Database::hash_data(const std::string& data) {
 	char hashed_data[crypto_pwhash_STRBYTES];
@@ -64,7 +64,7 @@ std::string Database::generate_token(int user_id) {
 	return ss.str();
 }
 
-awaitable<bool> Database::validate_token(const std::string& token) {
+net::awaitable<bool> Database::validate_token(const std::string& token) {
     try {
         std::string hashed_token = hash_data(token);
 
@@ -82,7 +82,7 @@ awaitable<bool> Database::validate_token(const std::string& token) {
 }
 
 
-awaitable<Database::AuthResult> Database::login_user(const std::string& login, const std::string& password) {
+net::awaitable<Database::AuthResult> Database::login_user(const std::string& login, const std::string& password) {
     try {
         std::string query = "SELECT id, password FROM users WHERE login = '" + pqxx::to_string(login) + "'";
         pqxx::result result = co_await execute_query(query);
@@ -118,7 +118,7 @@ awaitable<Database::AuthResult> Database::login_user(const std::string& login, c
 }
 
 
-awaitable<bool> Database::signup_user(const std::string& login, const std::string& password) {
+net::awaitable<bool> Database::signup_user(const std::string& login, const std::string& password) {
     try {
         std::cout << "signup_user in DatabaseManager" << std::endl;
         std::string check_query = "SELECT id FROM users WHERE login = '" + pqxx::to_string(login) + "'";
@@ -144,6 +144,15 @@ awaitable<bool> Database::signup_user(const std::string& login, const std::strin
     }
 }
 
-
-
+net::awaitable<void> Database::update_user_status(int user_id, const std::string& status) {
+    try {
+        std::string query = "UPDATE users SET status = '" + pqxx::to_string(status) +
+            "' WHERE id = " + pqxx::to_string(user_id);
+        co_await execute_query(query);
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Failed to update user status: " << e.what() << std::endl;
+        throw;
+    }
+}
 

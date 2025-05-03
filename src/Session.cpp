@@ -1,23 +1,21 @@
 
 #include "Session.hpp"
-#include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
+#include "SessionManager.hpp"
 #include <iostream>
 
 
-Session::Session(tcp::socket socket, std::set<std::shared_ptr<Session>>& clients, std::shared_ptr<Database> db)
-	: socket_(std::move(socket)), clients_(clients), db_(db) {}
+Session::Session(tcp::socket socket, std::shared_ptr<SessionManager> manager, std::shared_ptr<Database> db)
+	: ws_(std::move(socket)), manager_(manager), db_(db) {}
 
-awaitable<void> Session::start() {
-	auto executor = co_await this_coro::executor;
+net::awaitable<void> Session::start() {
 	auto self = shared_from_this();
-	clients_.insert(self);
 
 	try {
-		boost::asio::streambuf buffer;
-		std::cout << "in start" << std::endl;
+		co_await ws_.async_accept(net::use_awaitable);
+		std::cout << "ws connection established" << std::endl;
+
 		while (true) {
-			std::string message = co_await read_message(buffer);
+			std::string message = co_await read_message();
 			if (message.empty()) {
 				std::cerr << "Client disconnected" << std::endl;
 				break;
@@ -29,69 +27,66 @@ awaitable<void> Session::start() {
 			std::string type = j.value("type", "message");
 
 			if (type == "signup") {
-				std::cout << "launch signup in session" << std::endl;
-				co_await handle_signup(j, self);
+				co_await handle_signup(j);
 
 			}
 			else if (type == "login") {
-				co_await handle_login(j, self);
+				co_await handle_login(j);
 			}
-			else if (type == "message") {
-				handle_chat_message(j, self);
-			}
+			// else if (type == "message") {
+			// 	handle_chat_message(j);
+			// }
 		}
-		clients_.erase(self);
-		co_return;
 	}
 	catch (const std::exception& e) {
 		std::cerr << "Client disconnected: " << e.what() << std::endl;
-		clients_.erase(self);
-		co_return;
+	}
+	if (user_id_ != -1) {
+		manager_->remove_user(user_id_);
 	}
 }
 
-void Session::deliver(std::shared_ptr<std::string> message) {
-	auto self = shared_from_this();
-	post(socket_.get_executor(), [this, self, msg = std::move(message)]() {
-		bool write_in_progress = !write_msgs_.empty();
-		write_msgs_.push_back(std::move(*msg));
-		if (!write_in_progress) {
-			std::cout << "before co spawn do_write" << std::endl;
-			co_spawn(socket_.get_executor(), do_write(), detached);
-		}
-		}
-	);
-}
+// void Session::deliver(std::shared_ptr<std::string> message) {
+// 	auto self = shared_from_this();
+// 	net::post(ws_.get_executor(), 
+//         [this, self, message]() {
+//             co_spawn(ws_.get_executor(), 
+//                 [this, self, message]() -> net::awaitable<void> {
+//                     co_await do_write(*message);
+//                 }, 
+//                 net::detached);
+//         });
+// }
 
-awaitable<void> Session::do_write() {
+net::awaitable<void> Session::do_write(const std::string& message) {
 	try {
-		std::cout << "in do_write" << std::endl;
-		while (!write_msgs_.empty()) {
-			co_await async_write(socket_, buffer(write_msgs_.front()), use_awaitable);
-			std::cout << "in do_write while" << std::endl;
-			write_msgs_.pop_front();
-		}
-	}
-	catch (...) {
-		clients_.erase(shared_from_this());
-	}
-	co_return;
+        co_await ws_.async_write(net::buffer(message), net::use_awaitable);
+    }
+    catch(const std::exception& e) {
+        std::cerr << "Write error: " << e.what() << std::endl;
+        throw;
+    }
 }
 
 
 
-awaitable<std::string> Session::read_message(boost::asio::streambuf& buffer) {
-	std::string message;
+net::awaitable<std::string> Session::read_message() {
 	try {
-		std::size_t n = co_await async_read_until(socket_, buffer, '\n', use_awaitable);
-		message = std::string{ buffers_begin(buffer.data()), buffers_begin(buffer.data()) + n };
-		buffer.consume(n);
-		co_return message;
-	}
-	catch(const std::exception& e){
-		std::cerr << "Read error: " << e.what() << std::endl;
-		co_return "";
-	}
+        buffer_.clear();
+        auto bytes_read = co_await ws_.async_read(buffer_, net::use_awaitable);
+        std::string message = beast::buffers_to_string(buffer_.data());
+        co_return message;
+    }
+    catch(const beast::system_error& se) {
+        if(se.code() != websocket::error::closed) {
+            std::cerr << "Read error: " << se.what() << std::endl;
+        }
+        co_return "";
+    }
+    catch(const std::exception& e) {
+        std::cerr << "Read error: " << e.what() << std::endl;
+        co_return "";
+    }
 }
 
 bool Session::try_parse_json(const std::string& str, json& j) {
@@ -106,23 +101,23 @@ bool Session::try_parse_json(const std::string& str, json& j) {
 }
 
 
-void Session::handle_chat_message(const json& j, std::shared_ptr<Session> self) {
-	json response = {
-			{"user_id", j.value("user_id", -1)},
-			{"text", j.value("text", "")}
-	};
-	std::string response_str = response.dump() + "\n";
-	auto shared_msg = std::make_shared<std::string>(response_str);
-	for (auto& client : clients_) {
-		if (client != self) {
-			client->deliver(shared_msg);
-		}
-	}
-}
+// void Session::handle_chat_message(const json& j) {
+// 	json response = {
+// 			{"user_id", j.value("user_id", -1)},
+// 			{"text", j.value("text", "")}
+// 	};
+// 	std::string response_str = response.dump() + "\n";
+// 	auto shared_msg = std::make_shared<std::string>(response_str);
+// 	for (auto& client : clients_) {
+//         if (client.get() != this) {
+//             client->deliver(std::make_shared<std::string>(response_str));
+//         }
+//     }
+// }
 
 
 
-awaitable<void> Session::handle_login(const json& j, std::shared_ptr<Session> self) {
+net::awaitable<void> Session::handle_login(const json& j) {
 	std::string login = j.value("login", "");
 	std::string password = j.value("password", "");
 
@@ -130,19 +125,32 @@ awaitable<void> Session::handle_login(const json& j, std::shared_ptr<Session> se
 
 	json response;
 	if (auth_result.success) {
-		response = { {"type", "auth_success"}, {"token", auth_result.token}, {"message", "Login successful"}};
+		// ?????????????????
+		int user_id = [&]() {
+			try {
+				return std::stoi(auth_result.token.substr(0, auth_result.token.find(':')));
+			} catch (...) {
+				return -1;
+			}
+		}();
+		if (user_id != -1) {
+			set_user_id(user_id);
+			manager_->add_user(user_id_, shared_from_this());
+			response = { {"type", "auth_success"}, {"token", auth_result.token}, 
+			{"message", "Login successful"}, {"user_id", user_id} };
+		} else {
+			response = { {"type", "auth_failed"}, {"message", "Invalid user ID"} };
+		}
 	}
 	else {
-		response = { {"type", "auth_failed"}, {"message", "Invalid login or password"} };
+		response = { {"type", "auth_failed"}, {"message", auth_result.error_message} };
 	}
 
-	std::string serialized = response.dump() + "\n";
-	auto shared_resp = std::make_shared<std::string>(std::move(serialized));
-	self->deliver(shared_resp);
+	co_await do_write(response.dump());
 }
 
 
-awaitable<void> Session::handle_signup(const json& j, std::shared_ptr<Session> self) {
+net::awaitable<void> Session::handle_signup(const json& j) {
 	std::cout << "handle_signup in session" << std::endl;
 	std::string login = j.value("login", "");
 	std::string password = j.value("password", "");
@@ -160,8 +168,5 @@ awaitable<void> Session::handle_signup(const json& j, std::shared_ptr<Session> s
 		response = { {"type", "auth_failed"}, {"message", "Signup failed: user already exists"} };
 	}
 
-	std::string serialized = response.dump() + "\n";
-	auto shared_resp = std::make_shared<std::string>(serialized);
-	std::cout << "before deliver" << std::endl;
-	self->deliver(shared_resp);
+	co_await do_write(response.dump());
 }

@@ -5,7 +5,6 @@
 #include <queue>
 #include <mutex>
 #include <memory>
-#include <boost/asio.hpp>
 
 class ConnectionPool {
 public:
