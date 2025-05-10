@@ -14,6 +14,7 @@ public:
 
 	struct AuthResult {
 		bool success;
+		int user_id;
 		std::string token;
 		std::string error_message;
 	};

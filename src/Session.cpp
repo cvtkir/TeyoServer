@@ -8,6 +8,7 @@ Session::Session(tcp::socket socket, std::shared_ptr<SessionManager> manager, st
 	: ws_(std::move(socket)), manager_(manager), db_(db) {}
 
 net::awaitable<void> Session::start() {
+	std::cout << "in session" << std::endl;
 	auto self = shared_from_this();
 
 	try {
@@ -15,16 +16,16 @@ net::awaitable<void> Session::start() {
 		std::cout << "ws connection established" << std::endl;
 
 		while (true) {
+			std::cout << "in start while()" << std::endl;
 			std::string message = co_await read_message();
 			if (message.empty()) {
 				std::cerr << "Client disconnected" << std::endl;
 				break;
 			}
-
 			json j;
 			if (!try_parse_json(message, j)) continue;
 
-			std::string type = j.value("type", "message");
+			std::string type = j.value("type", "");
 
 			if (type == "signup") {
 				co_await handle_signup(j);
@@ -59,6 +60,8 @@ net::awaitable<void> Session::start() {
 // }
 
 net::awaitable<void> Session::do_write(const std::string& message) {
+	std::cout << "Sending message: " << message << std::endl;
+	
 	try {
         co_await ws_.async_write(net::buffer(message), net::use_awaitable);
     }
@@ -73,9 +76,13 @@ net::awaitable<void> Session::do_write(const std::string& message) {
 net::awaitable<std::string> Session::read_message() {
 	try {
         buffer_.clear();
+		// buffer_.consume(buffer_.size());
         auto bytes_read = co_await ws_.async_read(buffer_, net::use_awaitable);
         std::string message = beast::buffers_to_string(buffer_.data());
-        co_return message;
+
+		std::cout << "Received message: " << message << std::endl;
+        
+		co_return message;
     }
     catch(const beast::system_error& se) {
         if(se.code() != websocket::error::closed) {
@@ -125,21 +132,13 @@ net::awaitable<void> Session::handle_login(const json& j) {
 
 	json response;
 	if (auth_result.success) {
-		// ?????????????????
-		int user_id = [&]() {
-			try {
-				return std::stoi(auth_result.token.substr(0, auth_result.token.find(':')));
-			} catch (...) {
-				return -1;
-			}
-		}();
-		if (user_id != -1) {
-			set_user_id(user_id);
+		if (auth_result.user_id != -1) {
+			set_user_id(auth_result.user_id);
 			manager_->add_user(user_id_, shared_from_this());
-			response = { {"type", "auth_success"}, {"token", auth_result.token}, 
-			{"message", "Login successful"}, {"user_id", user_id} };
+			response = { {"type", "login_success"}, {"token", auth_result.token}, 
+			{"message", "Login successful"}, {"user_id", auth_result.user_id} };
 		} else {
-			response = { {"type", "auth_failed"}, {"message", "Invalid user ID"} };
+			response = { {"type", "auth_failed"}, {"message", auth_result.error_message} };
 		}
 	}
 	else {
@@ -151,18 +150,15 @@ net::awaitable<void> Session::handle_login(const json& j) {
 
 
 net::awaitable<void> Session::handle_signup(const json& j) {
-	std::cout << "handle_signup in session" << std::endl;
 	std::string login = j.value("login", "");
 	std::string password = j.value("password", "");
 
 	
 	bool success = co_await db_->signup_user(login, password);
-	std::cout << "exited from DatabaseManager with:" << success << std::endl;
-
 
 	json response;
 	if (success) {
-		response = { {"type", "auth_success"}, {"message", "Signup successful"} };
+		response = { {"type", "signup_success"}, {"message", "Signup successful"} };
 	}
 	else {
 		response = { {"type", "auth_failed"}, {"message", "Signup failed: user already exists"} };

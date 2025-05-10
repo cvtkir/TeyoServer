@@ -84,16 +84,16 @@ net::awaitable<bool> Database::validate_token(const std::string& token) {
 
 net::awaitable<Database::AuthResult> Database::login_user(const std::string& login, const std::string& password) {
     try {
-        std::string query = "SELECT id, password FROM users WHERE login = '" + pqxx::to_string(login) + "'";
+        std::string query = "SELECT id, password_hash FROM users WHERE login = '" + pqxx::to_string(login) + "'";
         pqxx::result result = co_await execute_query(query);
         if (result.empty()) {
-            co_return AuthResult{false, "", "User not found"};
+            co_return AuthResult{false, -1, "", "User not found"};
         }
 		int user_id = result[0][0].as<int>();
         std::string hashed_password = result[0][1].as<std::string>();
 
 		if (!verify_hash(password, hashed_password)) {
-			co_return AuthResult{ false, "", "Invalid password" };
+			co_return AuthResult{ false, -1, "", "Invalid password" };
 		}
 
 		std::string token = generate_token(user_id);
@@ -104,23 +104,22 @@ net::awaitable<Database::AuthResult> Database::login_user(const std::string& log
         std::string insert_token_query =
             "INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (" +
             std::to_string(user_id) + ", '" +
-            pqxx::to_string(hashed_token) + ", '" +
-            "TO_TIMESTAMP(" + std::to_string(expires_at_t) + ")";
+            pqxx::to_string(hashed_token) + "', " +
+            "TO_TIMESTAMP(" + std::to_string(expires_at_t) + "))";
 		co_await execute_query(insert_token_query);
 
         
-		co_return AuthResult{ true, token, "" };
+		co_return AuthResult{ true, user_id, token, "" };
     }
     catch (const std::exception& e) {
         std::cerr << "Login error: " << e.what() << std::endl;
-        co_return AuthResult{false, "", "Internal server error"};
+        co_return AuthResult{false, -1, "", "Internal server error"};
     }
 }
 
 
 net::awaitable<bool> Database::signup_user(const std::string& login, const std::string& password) {
     try {
-        std::cout << "signup_user in DatabaseManager" << std::endl;
         std::string check_query = "SELECT id FROM users WHERE login = '" + pqxx::to_string(login) + "'";
         pqxx::result check_result = co_await execute_query(check_query);
         if (!check_result.empty()) {
@@ -130,7 +129,7 @@ net::awaitable<bool> Database::signup_user(const std::string& login, const std::
         std::string hashed_password = hash_data(password);
         
         std::string insert_query =
-            "INSERT INTO users (login, password, username) VALUES ('" +
+            "INSERT INTO users (login, password_hash, username) VALUES ('" +
             pqxx::to_string(login) + "', '" +
             pqxx::to_string(hashed_password) + "', '" +
             pqxx::to_string(login) + "')";

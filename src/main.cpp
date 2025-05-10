@@ -23,8 +23,8 @@ void initServer(std::shared_ptr<Database> db) {
 			net::detached
 		);
 
-		std::cout << "Server started on port " << DEFAULT_PORT << std::endl;
 		net::post(pool, [&ctx]() { ctx.run(); });
+		std::cout << "Server started on port " << DEFAULT_PORT << std::endl;
 		pool.join();
 	}
 	catch (std::exception& e) {
