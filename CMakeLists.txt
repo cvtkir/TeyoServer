@@ -42,4 +42,3 @@ target_link_libraries(${PROJECT_NAME}
 #  set_property(TARGET TeyoServer PROPERTY CXX_STANDARD 20)
 #endif()
 
-# TODO: Add tests and install targets if needed.
