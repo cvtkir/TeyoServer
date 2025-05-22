@@ -2,10 +2,11 @@
 	"name": "teyo-server",
 	"version-string": "1.0.0",
 	"dependencies": [
-    "boost",
+    "boost-asio",
+    "boost-beast",
     "nlohmann-json",
     "libpqxx",
     "libsodium"
 	],
-  "builtin-baseline": "33b302a46eff35d8a308b20465b53249eee77a31"
+  "builtin-baseline": "d43918b9143e24ffb56917daacd9126ad03014d6"
 }
