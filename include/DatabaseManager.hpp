@@ -21,7 +21,7 @@ public:
 
 	net::awaitable<AuthResult> login_user(const std::string& login, const std::string& password);
 	net::awaitable<bool> signup_user(const std::string& login, const std::string& password);
-	net::awaitable<bool> validate_token(const std::string& token);
+	net::awaitable<AuthResult> validate_token(const std::string& token);
 	net::awaitable<void> update_user_status(int user_id, const std::string& status);
 	net::io_context::executor_type get_executor() const { return executor_; }
 

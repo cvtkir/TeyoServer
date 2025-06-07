@@ -64,20 +64,23 @@ std::string Database::generate_token(int user_id) {
 	return ss.str();
 }
 
-net::awaitable<bool> Database::validate_token(const std::string& token) {
+net::awaitable<Database::AuthResult> Database::validate_token(const std::string& token) {
     try {
         std::string hashed_token = hash_data(token);
 
         std::string query =
-            "SELECT 1 FROM sessions WHERE token_hash = " + pqxx::to_string(hashed_token) +
+            "SELECT user_id FROM sessions WHERE token_hash = " + pqxx::to_string(hashed_token) +
             " AND expires_at > NOW()";
-
         pqxx::result result = co_await execute_query(query);
-        co_return !result.empty();
+        if (result.empty()) {
+            co_return AuthResult{false, -1, "", "Invalid or expired token"};
+        }
+        // update token expiration
+        co_return AuthResult{true, result[0][0].as<int>(), "", ""};
     }
     catch (const std::exception& e) {
         std::cerr << "Token validation error: " << e.what() << std::endl;
-        co_return false;
+        co_return AuthResult{false, -1, "", "Invalid or expired token"};
     }
 }
 

@@ -34,6 +34,9 @@ net::awaitable<void> Session::start() {
 			else if (type == "login") {
 				co_await handle_login(j);
 			}
+			else if (type == "token_login") {
+				co_await handle_token_login(j);
+			}
 			// else if (type == "message") {
 			// 	handle_chat_message(j);
 			// }
@@ -162,6 +165,24 @@ net::awaitable<void> Session::handle_signup(const json& j) {
 	}
 	else {
 		response = { {"type", "auth_failed"}, {"message", "Signup failed: user already exists"} };
+	}
+
+	co_await do_write(response.dump());
+}
+
+net::awaitable<void> Session::handle_token_login(const json& j) {
+	std::string token = j.value("token", "");
+
+	auto token_result = co_await db_->validate_token(token);
+
+	json response;
+	if (token_result.success) {
+		set_user_id(token_result.user_id);
+		manager_->add_user(user_id_, shared_from_this());
+		response = { {"type", "token_login_success"}, {"message", "Token login successful"}, {"user_id", user_id_} };
+	}
+	else {
+		response = { {"type", "auth_failed"}, {"message", "Invalid token"} };
 	}
 
 	co_await do_write(response.dump());

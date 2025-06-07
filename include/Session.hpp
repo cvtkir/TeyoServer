@@ -30,6 +30,7 @@ private:
 	bool try_parse_json(const std::string& str, json& j);
 	net::awaitable<void> handle_signup(const json& j);
 	net::awaitable<void> handle_login(const json& j);
+	net::awaitable<void> handle_token_login(const json& j);
 	// void handle_chat_message(const json& j);
 	net::awaitable<void> do_write(const std::string& message);
 
